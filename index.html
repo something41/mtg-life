@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Life">
+<meta name="theme-color" content="#0b0b10">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Life Counter</title>
+<style>
+  :root {
+    --bg: #0b0b10;
+    --ink: #f5f5f7;
+    --muted: rgba(255,255,255,.55);
+    --sheet: #17171f;
+    --line: rgba(255,255,255,.12);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Rounded", system-ui, sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    touch-action: manipulation;
+  }
+  button { font: inherit; color: inherit; }
+
+  #board {
+    position: fixed;
+    inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    display: grid; gap: 6px; padding: 6px;
+  }
+  #board.p1 { grid-template: 1fr / 1fr; }
+  #board.p2 { grid-template: 1fr 1fr / 1fr; }
+  #board.p3 { grid-template: 1fr 1fr / 1fr 1fr; }
+  #board.p3 .cell:first-child { grid-column: 1 / 3; }
+  #board.p4 { grid-template: 1fr 1fr / 1fr 1fr; }
+
+  .cell { position: relative; container-type: size; border-radius: 22px; overflow: hidden; }
+  .panel {
+    position: absolute; left: 50%; top: 50%;
+    width: 100cqw; height: 100cqh;
+    transform: translate(-50%, -50%);
+    background: var(--c); border-radius: 22px;
+    display: flex; align-items: center; justify-content: center;
+    transition: filter .3s;
+  }
+  .rot180 .panel { transform: translate(-50%, -50%) rotate(180deg); }
+  .rot90 .panel  { width: 100cqh; height: 100cqw; transform: translate(-50%, -50%) rotate(90deg); }
+  .rot-90 .panel { width: 100cqh; height: 100cqw; transform: translate(-50%, -50%) rotate(-90deg); }
+  .panel.dead { filter: grayscale(1) brightness(.45); }
+
+  .zone { position: absolute; left: 0; width: 50%; top: 0; bottom: 0; z-index: 1; }
+  .zone.up { left: 50%; }
+  .zone:active { background: rgba(255,255,255,.06); }
+
+  .hint {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    font-size: clamp(22px, 9cqmin, 44px); font-weight: 300; opacity: .45; pointer-events: none;
+  }
+  .hint.minus { left: 7%; } .hint.plus { right: 7%; }
+
+  .life {
+    font-size: clamp(56px, 42cqmin, 200px); font-weight: 700; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: -.03em; pointer-events: none;
+    text-shadow: 0 2px 12px rgba(0,0,0,.25);
+  }
+  .stack { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+  .delta {
+    font-size: clamp(14px, 8cqmin, 36px); line-height: 1.2; min-height: 1.2em; font-weight: 600; opacity: 0;
+    transition: opacity .25s; pointer-events: none;
+  }
+  .delta.show { opacity: .9; }
+  .name {
+    position: absolute; bottom: 9%; left: 50%; transform: translateX(-50%);
+    font-size: clamp(12px, 5cqmin, 18px); font-weight: 600; opacity: .7; pointer-events: none;
+    white-space: nowrap; letter-spacing: .04em; text-transform: uppercase;
+  }
+  .badges {
+    position: absolute; top: 6%; left: 0; right: 0; display: flex; justify-content: center; gap: 8px;
+    pointer-events: none;
+  }
+  .badge {
+    background: rgba(0,0,0,.3); border-radius: 999px; padding: 3px 10px;
+    font-size: clamp(12px, 5cqmin, 17px); font-weight: 600;
+  }
+  .more {
+    position: absolute; right: 10px; bottom: 10px; z-index: 2;
+    width: 44px; height: 44px; border-radius: 50%; border: 0;
+    background: rgba(0,0,0,.25); font-size: 20px; line-height: 44px;
+  }
+
+  #menuBtn {
+    position: fixed; z-index: 5; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 56px; height: 56px; border-radius: 50%; border: 4px solid var(--bg);
+    background: #2a2a35; font-size: 22px; box-shadow: 0 4px 16px rgba(0,0,0,.5);
+  }
+
+  /* Sheets */
+  .backdrop {
+    position: fixed; inset: 0; z-index: 10; background: rgba(0,0,0,.55);
+    display: none; align-items: flex-end; justify-content: center;
+  }
+  .backdrop.open { display: flex; }
+  .sheet {
+    width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto;
+    background: var(--sheet); border-radius: 22px 22px 0 0;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    -webkit-user-select: none; user-select: none;
+  }
+  .sheet h2 { margin: 4px 0 14px; font-size: 20px; }
+  .sheet h3 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .seg { display: flex; gap: 8px; }
+  .seg button {
+    flex: 1; padding: 12px 0; border-radius: 12px; border: 1px solid var(--line);
+    background: transparent; font-weight: 600; font-size: 17px;
+  }
+  .seg button.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--line);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row .label { display: flex; align-items: center; gap: 10px; font-size: 16px; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--c); flex: none; }
+  .stepper { display: flex; align-items: center; gap: 6px; }
+  .stepper button {
+    width: 44px; height: 44px; border-radius: 12px; border: 0; background: #2a2a35; font-size: 22px;
+  }
+  .stepper output { min-width: 40px; text-align: center; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .big {
+    display: block; width: 100%; padding: 15px; margin-top: 10px; border-radius: 14px; border: 0;
+    background: #2a2a35; font-size: 17px; font-weight: 600;
+  }
+  .big.primary { background: var(--ink); color: var(--bg); }
+  .big.danger { background: #5b1d24; }
+  input[type=text] {
+    width: 100%; padding: 12px; border-radius: 12px; border: 1px solid var(--line);
+    background: #0f0f15; color: var(--ink); font-size: 17px; -webkit-user-select: text; user-select: text;
+  }
+  .note { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+
+  #toast {
+    position: fixed; z-index: 20; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.9);
+    background: #f5f5f7; color: #0b0b10; border-radius: 20px; padding: 20px 28px;
+    font-size: 22px; font-weight: 700; text-align: center; opacity: 0; pointer-events: none;
+    transition: opacity .2s, transform .2s;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+</style>
+</head>
+<body>
+<div id="board"></div>
+<button id="menuBtn" aria-label="Menu">☰</button>
+
+<div class="backdrop" id="menu">
+  <div class="sheet">
+    <h2>Game</h2>
+    <h3>Players</h3>
+    <div class="seg" id="segPlayers"></div>
+    <h3>Starting life</h3>
+    <div class="seg" id="segLife"></div>
+    <button class="big primary" id="newGame">New game</button>
+    <button class="big" id="rollFirst">Pick who goes first</button>
+    <button class="big" id="rollDie">Roll a d20</button>
+    <button class="big" id="flipCoin">Flip a coin</button>
+    <button class="big" id="closeMenu">Close</button>
+    <p class="note">Tap the right side of a player's area to gain life and the left side to lose it. Hold to change it quickly. Tap ⋯ for poison and commander damage.</p>
+  </div>
+</div>
+
+<div class="backdrop" id="detail">
+  <div class="sheet" id="detailSheet"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const COLORS = ['#b8323f', '#2f6fb3', '#2e8b57', '#8a4fbf', '#c27a1a', '#2a9d9d'];
+const DEFAULT_NAMES = ['Player 1', 'Player 2', 'Player 3', 'Player 4'];
+const KEY = 'mtg-life-v1';
+
+let state = load() || fresh(2, 20, null);
+
+// Keeps each seat's name and colour from the previous game.
+function fresh(players, life, prev = state) {
+  return {
+    players, startLife: life,
+    p: Array.from({ length: 4 }, (_, i) => ({
+      name: (prev && prev.p && prev.p[i] && prev.p[i].name) || DEFAULT_NAMES[i],
+      color: (prev && prev.p && prev.p[i] && prev.p[i].color) || COLORS[i],
+      life, poison: 0, cmd: [0, 0, 0, 0],
+    })),
+  };
+}
+function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} }
+
+// Which way each seat faces, so everyone around the table can read their own number.
+function orientation(n, i) {
+  if (n === 2) return i === 0 ? 'rot180' : '';
+  if (n === 3) return i === 0 ? 'rot180' : (i === 1 ? 'rot90' : 'rot-90');
+  if (n === 4) return i % 2 === 0 ? 'rot90' : 'rot-90';
+  return '';
+}
+
+const board = document.getElementById('board');
+const deltas = [0, 0, 0, 0];
+const deltaTimers = [];
+
+function render() {
+  board.className = 'p' + state.players;
+  board.innerHTML = '';
+  for (let i = 0; i < state.players; i++) {
+    const pl = state.p[i];
+    const cell = document.createElement('div');
+    cell.className = 'cell ' + orientation(state.players, i);
+    cell.innerHTML = `
+      <div class="panel" style="--c:${pl.color}">
+        <div class="zone down" data-i="${i}" data-d="-1"></div>
+        <div class="zone up" data-i="${i}" data-d="1"></div>
+        <span class="hint minus">−</span><span class="hint plus">+</span>
+        <div class="badges"></div>
+        <div class="stack"><div class="delta"></div><div class="life"></div></div>
+        <div class="name"></div>
+        <button class="more" data-i="${i}" aria-label="More">⋯</button>
+      </div>`;
+    board.appendChild(cell);
+  }
+  board.querySelectorAll('.zone').forEach(bindHold);
+  board.querySelectorAll('.more').forEach(b => b.addEventListener('click', () => openDetail(+b.dataset.i)));
+  update();
+}
+
+function isDead(pl) {
+  return pl.life <= 0 || pl.poison >= 10 || pl.cmd.some(d => d >= 21);
+}
+
+function update() {
+  const cells = board.children;
+  for (let i = 0; i < state.players; i++) {
+    const pl = state.p[i], c = cells[i];
+    c.querySelector('.life').textContent = pl.life;
+    c.querySelector('.name').textContent = pl.name;
+    c.querySelector('.panel').classList.toggle('dead', isDead(pl));
+    const badges = [];
+    if (pl.poison) badges.push(`☠ ${pl.poison}`);
+    pl.cmd.forEach((d, j) => { if (d && j < state.players) badges.push(`⚔ ${d}`); });
+    c.querySelector('.badges').innerHTML = badges.map(b => `<span class="badge">${b}</span>`).join('');
+    const del = c.querySelector('.delta');
+    del.textContent = deltas[i] > 0 ? '+' + deltas[i] : deltas[i];
+    del.classList.toggle('show', deltas[i] !== 0);
+  }
+  save();
+}
+
+function changeLife(i, d) {
+  state.p[i].life += d;
+  deltas[i] += d;
+  clearTimeout(deltaTimers[i]);
+  deltaTimers[i] = setTimeout(() => { deltas[i] = 0; update(); }, 1600);
+  update();
+}
+
+// Tap = ±1. Hold = repeat, speeding up.
+function bindHold(el) {
+  const i = +el.dataset.i, d = +el.dataset.d;
+  let t = null, count = 0;
+  const stop = () => { clearTimeout(t); t = null; };
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    count = 0;
+    changeLife(i, d);
+    const tick = () => {
+      count++;
+      changeLife(i, count > 8 ? d * 5 : d);
+      t = setTimeout(tick, count > 8 ? 220 : 110);
+    };
+    t = setTimeout(tick, 450);
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => el.addEventListener(ev, stop));
+}
+
+// ---------- Menu ----------
+const menu = document.getElementById('menu');
+let pendingPlayers = state.players, pendingLife = state.startLife;
+
+function seg(id, values, current, onPick, label = v => v) {
+  const el = document.getElementById(id);
+  el.innerHTML = values.map(v => `<button data-v="${v}" class="${v === current ? 'on' : ''}">${label(v)}</button>`).join('');
+  el.querySelectorAll('button').forEach(b => b.onclick = () => onPick(+b.dataset.v));
+}
+function renderMenu() {
+  seg('segPlayers', [1, 2, 3, 4], pendingPlayers, v => { pendingPlayers = v; renderMenu(); });
+  seg('segLife', [20, 30, 40], pendingLife, v => { pendingLife = v; renderMenu(); });
+}
+document.getElementById('menuBtn').onclick = () => {
+  pendingPlayers = state.players; pendingLife = state.startLife;
+  renderMenu(); menu.classList.add('open');
+};
+document.getElementById('closeMenu').onclick = () => menu.classList.remove('open');
+menu.addEventListener('click', e => { if (e.target === menu) menu.classList.remove('open'); });
+document.getElementById('newGame').onclick = () => {
+  state = fresh(pendingPlayers, pendingLife);
+  deltas.fill(0);
+  menu.classList.remove('open');
+  render();
+};
+document.getElementById('rollFirst').onclick = () => {
+  const i = Math.floor(Math.random() * state.players);
+  menu.classList.remove('open');
+  toast(`${state.p[i].name} goes first`);
+};
+document.getElementById('rollDie').onclick = () => {
+  menu.classList.remove('open');
+  toast(`d20: ${1 + Math.floor(Math.random() * 20)}`);
+};
+document.getElementById('flipCoin').onclick = () => {
+  menu.classList.remove('open');
+  toast(Math.random() < .5 ? 'Heads' : 'Tails');
+};
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+// ---------- Player detail (poison, commander damage, name, colour) ----------
+const detail = document.getElementById('detail');
+const detailSheet = document.getElementById('detailSheet');
+detail.addEventListener('click', e => { if (e.target === detail) closeDetail(); });
+
+function stepperRow(label, value, key, colorDot) {
+  return `<div class="row">
+    <span class="label">${colorDot ? `<span class="dot" style="--c:${colorDot}"></span>` : ''}${label}</span>
+    <span class="stepper">
+      <button data-k="${key}" data-d="-1">−</button><output>${value}</output><button data-k="${key}" data-d="1">+</button>
+    </span></div>`;
+}
+
+function openDetail(i) {
+  const pl = state.p[i];
+  const opp = [];
+  for (let j = 0; j < state.players; j++) if (j !== i) opp.push(j);
+  detailSheet.innerHTML = `
+    <h2>${escapeHtml(pl.name)}</h2>
+    ${stepperRow('Life', pl.life, 'life')}
+    ${stepperRow('Poison (10 = out)', pl.poison, 'poison')}
+    ${opp.length ? `<h3>Commander damage taken (21 = out)</h3>
+      ${opp.map(j => stepperRow('From ' + escapeHtml(state.p[j].name), pl.cmd[j], 'cmd' + j, state.p[j].color)).join('')}
+      <p class="note">Commander damage also lowers life.</p>` : ''}
+    <h3>Name</h3>
+    <input type="text" id="nameInput" value="${escapeHtml(pl.name)}" maxlength="20">
+    <h3>Colour</h3>
+    <div class="seg">${COLORS.map(c => `<button data-color="${c}" style="background:${c};height:44px;${c === pl.color ? 'outline:3px solid #fff;outline-offset:2px' : ''}"></button>`).join('')}</div>
+    <button class="big primary" id="doneDetail">Done</button>`;
+
+  detailSheet.querySelectorAll('.stepper button').forEach(b => b.onclick = () => {
+    const k = b.dataset.k, d = +b.dataset.d;
+    if (k === 'life') changeLife(i, d);
+    else if (k === 'poison') pl.poison = Math.max(0, pl.poison + d);
+    else {
+      const j = +k.slice(3);
+      if (pl.cmd[j] + d < 0) return;
+      pl.cmd[j] += d;
+      changeLife(i, -d);
+    }
+    update(); openDetail(i);
+  });
+  detailSheet.querySelectorAll('[data-color]').forEach(b => b.onclick = () => {
+    pl.name = document.getElementById('nameInput').value.trim() || pl.name;
+    pl.color = b.dataset.color; save(); render(); openDetail(i);
+  });
+  document.getElementById('doneDetail').onclick = closeDetail;
+  detail.dataset.i = i;
+  detail.classList.add('open');
+}
+function closeDetail() {
+  const i = +detail.dataset.i, input = document.getElementById('nameInput');
+  if (input) { state.p[i].name = input.value.trim() || DEFAULT_NAMES[i]; }
+  detail.classList.remove('open');
+  update();
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+
+// ---------- Keep the screen awake during a game ----------
+let wakeLock = null;
+async function keepAwake() {
+  try { if ('wakeLock' in navigator && !wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => wakeLock = null); } } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+document.addEventListener('pointerdown', keepAwake, { once: true });
+keepAwake();
+
+// ---------- Works offline once added to the Home Screen ----------
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+render();
+</script>
+</body>
+</html>
